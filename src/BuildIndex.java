@@ -40,6 +40,10 @@ public class BuildIndex {
 		writeTfIdfFile(Paths.get(".").toRealPath().resolve("WEBPAGES_CLEAN").resolve("tf_idf_file.json"));
 		
 		System.out.println("done");
+		
+		// Print out statics
+		System.out.println("# of documents: " + urlIDMap.size());
+		System.out.println("# of unique words: " + invertIndex.size());
 	}
 	
 	
@@ -63,9 +67,9 @@ public class BuildIndex {
 			String content = new String(Files.readAllBytes(rootPath.resolve(key)));
 			contentIDMap.put(key, content);
 			
-//			if (counter > 50) {
-//				break;
-//			}
+			if (counter > 10000) {
+				break;
+			}
 			counter++;
 		}
 	}
