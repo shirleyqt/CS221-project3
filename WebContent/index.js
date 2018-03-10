@@ -5,13 +5,16 @@ function handleSearch(value) {
 	
 }
 
-// bind pressing enter key to a hanlder function
-jQuery('#search').keypress(function(event) {
+// bind pressing enter key to a handler function
+jQuery('#query').keypress(function(event) {
 	// keyCode 13 is the enter key
 	if (event.keyCode == 13) {
 		// pass the value of the input box to the handler function
-		handleSearch($('#search').val())
+		handleSearch($('#query').val())
 	}
 })
 
-
+// bind pressing the button to a handler function
+document.getElementById('search').onclick = function() { 
+	handleSearch($('#query').val()) 
+};
