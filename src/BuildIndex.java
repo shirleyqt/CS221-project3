@@ -20,8 +20,9 @@ public class BuildIndex {
 	public static HashMap<String, String> contentIDMap = new HashMap<>();
 	
 	public static HashMap<String, PriorityQueue<Payload>> invertIndex = new HashMap<>();
-	public static HashMap<String, Integer> tokenFrequency = new HashMap<>();
-	public static HashMap<String, HashSet<String>> tokenInDocs = new HashMap<>();
+	
+	public static HashMap<String, HashMap<String, Integer>> termFrequencyEachDoc = new HashMap<>();
+	public static HashMap<String, Integer> documentFrequency = new HashMap<>();
 
 	
 	
@@ -36,7 +37,7 @@ public class BuildIndex {
 		System.out.println("write index to file");
 		writeIndexToFile(Paths.get(".").toRealPath().resolve("WEBPAGES_CLEAN").resolve("index_file.json"));
 		
-		System.out.println("write to tfidf file");
+		System.out.println("write to tf-idf file");
 		writeTfIdfFile(Paths.get(".").toRealPath().resolve("WEBPAGES_CLEAN").resolve("tf_idf_file.json"));
 		
 		System.out.println("done");
@@ -63,12 +64,54 @@ public class BuildIndex {
 			String content = new String(Files.readAllBytes(rootPath.resolve(key)));
 			contentIDMap.put(key, content);
 			
-//			if (counter > 50) {
+//			if (counter > 100) {
 //				break;
 //			}
+			
 			counter++;
 		}
 	}
+	
+	public static HashMap<Integer, String> tokenizeText(String text) {
+		HashMap<Integer, String> result = new HashMap<>();
+		
+		if (text == null || text.trim().isEmpty()) {
+			return result;
+		}
+		
+		SimpleTokenizer tokenizer = SimpleTokenizer.INSTANCE;
+		List<String> tokens = Arrays.asList(tokenizer.tokenize(text));
+		
+		for (int pos = 0; pos < tokens.size(); pos++) {
+			String token = tokens.get(pos).trim().toLowerCase();
+
+			if (token.isEmpty() || token.length() < 3) {
+				continue;
+			}
+			
+			result.put(pos, token);
+		}
+		return result;
+	}
+	
+	public static HashMap<String, Integer> calculateTermFrequency(Iterable<String> docVector) {
+		HashMap<String, Integer> tf = new HashMap<>();
+		docVector.forEach(term -> tf.put(term, tf.getOrDefault(term, 0) + 1));
+		return tf;
+	}
+	
+	public static double calculateTfIdf(int termFreq, int corpusSize, int docFreq) {
+		// tf-idf = tf * idf = (1 + log(freq(t)) * log (1 + N / N_t)
+		return (1 + Math.log(termFreq)) * Math.log(1 + (new Double(corpusSize) / new Double(docFreq)));
+	}
+	
+	public static HashMap<String, Double> getDocTfIdf(HashMap<String, Integer> docTermFreq) {
+		HashMap<String, Double> tfIdfMap = new HashMap<>();
+		docTermFreq.forEach((term, termFreq) -> tfIdfMap.put(
+				term, calculateTfIdf(termFreq, urlIDMap.size(), documentFrequency.get(term))));
+		return tfIdfMap;
+	}
+	
 	
 	/**
 	 * Populate the in memory invert index.
@@ -81,31 +124,25 @@ public class BuildIndex {
 		
 		for (String docID : contentIDMap.keySet()) {
 			
-			String content = contentIDMap.get(docID);
-			SimpleTokenizer tokenizer = SimpleTokenizer.INSTANCE;
-			List<String> tokens = Arrays.asList(tokenizer.tokenize(content));
+			// tokenize text into a hashmap of position -> token
+			// all token are in lowercase
+			HashMap<Integer, String> positionTokenMap = tokenizeText(contentIDMap.get(docID));
 			
-			for (int pos = 0; pos < tokens.size(); pos++) {
-				String token = tokens.get(pos).trim().toLowerCase();
-				if (token.trim().isEmpty()) {
-					continue;
-				}
-				if (token.length() < 3) {
-					continue;
-				}
-				// add the term into invert index
-				PriorityQueue<Payload> currentSet = invertIndex.getOrDefault(token, 
-						new PriorityQueue<>((p1, p2) -> p1.compareTo(p2)));
-				currentSet.add(new Payload(docID, pos));
-				invertIndex.put(token, currentSet);
-				
-				// add frequency
-				tokenFrequency.put(token, tokenFrequency.getOrDefault(token, 0) + 1);
-				HashSet<String> docSet = tokenInDocs.getOrDefault(token, new HashSet<>());
-				docSet.add(docID);
-				tokenInDocs.put(token, docSet);
-			}
+			// add the payload(docID and position) to the invert index
+			positionTokenMap.forEach((pos, token) -> {
+				if (!invertIndex.containsKey(token)) 
+					invertIndex.put(token, new PriorityQueue<>((p1, p2) -> p1.compareTo(p2)));
+				invertIndex.get(token).add(new Payload(docID, pos));
+				});
 			
+			
+			// calculate the term frequency and put it to the term frequency map
+			termFrequencyEachDoc.put(docID, calculateTermFrequency(positionTokenMap.values()));
+			
+			// convert the document to a set and update the document frequency map
+			new HashSet<>(positionTokenMap.values()).forEach(
+					token -> documentFrequency.put(token, documentFrequency.getOrDefault(token, 0) + 1));
+						
 		}
 			
 	}
@@ -116,27 +153,18 @@ public class BuildIndex {
 		
 		new ObjectMapper().writeValue(indexFilePath.toFile(), invertIndex);
 	}
-	
+		
 	
 	public static void writeTfIdfFile(Path tfIdfFilePath) throws IOException {
 		// calculate tf-idf
-		HashMap<String, Double> tfIdfMap = new HashMap<>();
+		HashMap<String, HashMap<String, Double>> tfIdfMapEachDoc = new HashMap<>();
 		
-		for (String token : tokenFrequency.keySet()) {
-			// tf-idf = tf * idf = (1 + log(freq(t)) * log (1 + N / N_t)
-			
-			Integer tf = tokenFrequency.get(token);			
-			Double idf = new Double(urlIDMap.size()) / new Double(tokenInDocs.get(token).size());
-			
-			Double tfIdf = (1 + Math.log(tf)) * Math.log(1 + idf);
-			
-			tfIdfMap.put(token, tfIdf);
-		}
+		termFrequencyEachDoc.forEach((docID, docTf) -> tfIdfMapEachDoc.put(docID, getDocTfIdf(docTf)));
 		
 		Files.deleteIfExists(tfIdfFilePath);
 		Files.createFile(tfIdfFilePath);
 		
-		new ObjectMapper().writeValue(tfIdfFilePath.toFile(), tfIdfMap);
+		new ObjectMapper().writeValue(tfIdfFilePath.toFile(), tfIdfMapEachDoc);
 
 	}
 	
