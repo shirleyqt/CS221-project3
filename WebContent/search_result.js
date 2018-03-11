@@ -28,6 +28,7 @@ function handleSearchResult(resultData) {
 		rowHTML += "'>";
 		rowHTML += resultData[i]["docID"]
 		rowHTML += "</a></li>"
+		rowHTML += "<p>" + resultData[i]["url"] + "</p>";
 		resultListElement.append(rowHTML);
 		
 	}
@@ -48,3 +49,7 @@ if (query) {
 	
 }
 
+//bind pressing the button to a handler function
+document.getElementById('return').onclick = function() { 
+	window.location.href = "index.html";
+};
