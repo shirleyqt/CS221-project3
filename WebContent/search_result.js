@@ -28,6 +28,7 @@ function handleSearchResult(resultData) {
 		rowHTML += "'>";
 		rowHTML += resultData[i]["docID"]
 		rowHTML += "</a></li>"
+		rowHTML += "<p>" + resultData[i]["url"] + "</p>";
 		resultListElement.append(rowHTML);
 		
 	}
