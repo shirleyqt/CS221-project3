@@ -32,18 +32,23 @@ public class SearchServlet extends HttpServlet {
 	public class ID_URL {
 		public String docID;
 		public String url;
+		public Double weight;
 		
-		public ID_URL(String docID, String url) {
+		public ID_URL(String docID, String url, Double weight) {
 			this.docID = docID;
 			this.url = url;
+			this.weight = weight;
 		}
 	}
 	
 	
 	private static final long serialVersionUID = 1L;
 	
-	public static HashMap<String, String> urlIDMap = new HashMap<>();
-	private HashMap<String, List<Payload>> invertIndex = new HashMap<>();
+	private HashMap<String, String> urlIDMap = new HashMap<>();
+	private HashMap<String, List<String>> idTitleMap = new HashMap<>();
+//	private HashMap<String, List<Payload>> invertIndex = new HashMap<>();
+	private HashMap<String, Set<String>> invertIndexOnlyDoc = new HashMap<>();
+	private HashMap<String, Set<String>> titleInvertIndex = new HashMap<>();
 	private HashMap<String, HashMap<String, Double>> tfIdfEachDoc = new HashMap<>();
 
        
@@ -52,6 +57,7 @@ public class SearchServlet extends HttpServlet {
         super();
         
         loadIndex();
+        System.gc();
     
     }
     
@@ -65,9 +71,23 @@ public class SearchServlet extends HttpServlet {
 		urlIDMap = new ObjectMapper().readValue(
 				indexRootPath.resolve("bookkeeping.json").toFile(), new TypeReference<HashMap<String, String>>(){});
 
-		invertIndex = new ObjectMapper().readValue(
+//		invertIndex = new ObjectMapper().readValue(
+//				indexRootPath.resolve("index_file.json").toFile(), 
+//				new TypeReference<HashMap<String, List<Payload>>>(){});
+		
+//		for (String token: invertIndex.keySet()) {
+//			List<Payload> payloadList = invertIndex.get(token);
+//			invertIndexOnlyDoc.put(token,
+//					payloadList.stream().map(payload -> payload.docID).collect(Collectors.toSet()));
+//		}
+		
+		invertIndexOnlyDoc = new ObjectMapper().readValue(
 				indexRootPath.resolve("index_file.json").toFile(), 
-				new TypeReference<HashMap<String, List<Payload>>>(){});
+				new TypeReference<HashMap<String, Set<String>>>(){});
+		
+		titleInvertIndex = new ObjectMapper().readValue(
+				indexRootPath.resolve("title_file.json").toFile(), 
+				new TypeReference<HashMap<String, Set<String>>>(){});
 		
 		tfIdfEachDoc = new ObjectMapper().readValue(
 				indexRootPath.resolve("tf_idf_file.json").toFile(), 
@@ -86,7 +106,7 @@ public class SearchServlet extends HttpServlet {
 		}
 		
 		List<String> queryTokens = new ArrayList<>(BuildIndex.tokenizeText(query).values());
-		Set<String> resultDocIDs = queryIndex(queryTokens);
+		Set<String> resultDocIDs = queryIndex(queryTokens, this.invertIndexOnlyDoc);
 		
 		HashMap<String, List<Double>> tfIdfEachMatchedDoc = new HashMap<>();
 		
@@ -108,13 +128,24 @@ public class SearchServlet extends HttpServlet {
 		
 		tfIdfEachMatchedDoc.forEach((docID, docTfIdf) -> docCosineSimilarityMap.put(docID, cosineSimilarity(docTfIdf, queryTfIdf)));
 		
+		
+		Set<String> titleDocIDs = queryIndex(queryTokens, this.titleInvertIndex);
+		System.out.println(titleDocIDs);
+		
+		for (String doc: docCosineSimilarityMap.keySet()) {
+			if (titleDocIDs.contains(doc)) {
+				docCosineSimilarityMap.put(doc, docCosineSimilarityMap.get(doc) * 2);
+			}
+		}
+		
+		
 		List<String> sortedDocIDs = resultDocIDs.stream()
-				.sorted((d1, d2) -> docCosineSimilarityMap.get(d1).compareTo(docCosineSimilarityMap.get(d2)))
+				.sorted((d1, d2) -> docCosineSimilarityMap.get(d2).compareTo(docCosineSimilarityMap.get(d1)))
 				.collect(Collectors.toList());
 		
 		
 		List<ID_URL> finalResults = sortedDocIDs.stream()
-				.map(id -> new ID_URL(id, urlIDMap.get(id)))
+				.map(id -> new ID_URL(id, urlIDMap.get(id), docCosineSimilarityMap.get(id)))
 				.collect(Collectors.toList());
 		
 		response.getWriter().write(new ObjectMapper().writeValueAsString(finalResults));
@@ -137,13 +168,11 @@ public class SearchServlet extends HttpServlet {
 		return dotProduct / normProduct;
 	}
 	
-	private Set<String> queryIndex(Collection<String> queryTokens) {
+	private Set<String> queryIndex(Collection<String> queryTokens, HashMap<String, Set<String>> index) {
 		
 		Set<String> resultDocIDs = queryTokens.stream()
 			// get the invert index payload list for each token
-			.map(token -> invertIndex.getOrDefault(token, new ArrayList<>()))
-			// convert payload list to a set of doc ID for each token
-			.map(list -> list.stream().map(payload -> payload.docID).collect(Collectors.toSet()))
+			.map(token -> index.getOrDefault(token, new HashSet<>()))
 			// intersection of all sets
 			.reduce((l1, l2) -> new HashSet<>(CollectionUtils.intersection(l1, l2)))
 			.orElse(new HashSet<>());
